@@ -1,0 +1,17 @@
+#1
+1. aws iam create-user --user-name s3user
+2. aws iam create-access-key --user-name s3user #you'd get the access and secret access key
+3. aws iam list-policies --query 'Policies[?contains(PolicyName,`S3`) == `true`]'
+4. aws iam attach-user-policy --user-name s3user --policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess
+
+#2
+5. aws iam create-login-profile --user-name s3user --password admintry12W#3
+6. aws configure
+7. aws sts get-caller-identity
+8. aws s3api list-buckets
+9. aws s3api create-bucket --bucket s3userbucketreder123 --create-bucket-configuration LocationConstraint=eu-north-1
+10. aws s3api create-bucket --bucket s3userbucketreder1233 --create-bucket-configuration LocationConstraint=eu-north-1
+11. aws ec2 describe-instances --output table
+
+#3
+12. aws iam attach-user-policy --user-name s3user --policy-arn arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess
