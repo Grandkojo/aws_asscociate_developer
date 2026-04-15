@@ -1,0 +1,136 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  IAM users (ec2-user1, ec2-user2, s3-user) with groups, console access,
+  and a shared one-time password stored in Secrets Manager.
+
+Resources:
+
+  # ─────────────────────────────────────────────────────────
+  # One-time password – auto-generated, stored in Secrets Manager
+  # ─────────────────────────────────────────────────────────
+  OneTimePassword:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: /iam/one-time-password
+      Description: Shared temporary password for all IAM console users
+      GenerateSecretString:
+        SecretStringTemplate: '{}'
+        GenerateStringKey: password
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\\'
+        RequireEachIncludedType: true
+
+  # ─────────────────────────────────────────────────────────
+  # S3 Group – list S3 buckets
+  # ─────────────────────────────────────────────────────────
+  S3UserGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: S3UserGroup
+      Policies:
+        - PolicyName: S3ListBucketsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketLocation
+                Resource: '*'
+
+  # ─────────────────────────────────────────────────────────
+  # EC2 Group – list EC2 instances only
+  # (ec2-user2 gets create permission via a separate policy below)
+  # ─────────────────────────────────────────────────────────
+  EC2UserGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: EC2UserGroup
+      Policies:
+        - PolicyName: EC2ListPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeInstanceStatus
+                  - ec2:DescribeInstanceTypes
+                  - ec2:DescribeRegions
+                Resource: '*'
+
+  # ─────────────────────────────────────────────────────────
+  # IAM Users
+  # ─────────────────────────────────────────────────────────
+  EC2User1:
+    Type: AWS::IAM::User
+    DependsOn: OneTimePassword
+    Properties:
+      UserName: ec2-user1
+      Groups:
+        - !Ref EC2UserGroup
+      LoginProfile:
+        Password: !Sub '{{resolve:secretsmanager:${OneTimePassword}:SecretString:password}}'
+        PasswordResetRequired: true
+
+  EC2User2:
+    Type: AWS::IAM::User
+    DependsOn: OneTimePassword
+    Properties:
+      UserName: ec2-user2
+      Groups:
+        - !Ref EC2UserGroup
+      LoginProfile:
+        Password: !Sub '{{resolve:secretsmanager:${OneTimePassword}:SecretString:password}}'
+        PasswordResetRequired: true
+
+  S3User:
+    Type: AWS::IAM::User
+    DependsOn: OneTimePassword
+    Properties:
+      UserName: s3-user
+      Groups:
+        - !Ref S3UserGroup
+      LoginProfile:
+        Password: !Sub '{{resolve:secretsmanager:${OneTimePassword}:SecretString:password}}'
+        PasswordResetRequired: true
+
+  # ─────────────────────────────────────────────────────────
+  # ec2-user2 only – create EC2 instances
+  # ec2-user1 is NOT granted this permission (prevented by omission)
+  # ─────────────────────────────────────────────────────────
+  EC2User2CreatePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: EC2CreateInstancePolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - ec2:RunInstances
+              - ec2:CreateTags
+              - ec2:DescribeImages
+              - ec2:DescribeVpcs
+              - ec2:DescribeSubnets
+              - ec2:DescribeSecurityGroups
+              - ec2:DescribeKeyPairs
+            Resource: '*'
+      Users:
+        - !Ref EC2User2
+
+  # ─────────────────────────────────────────────────────────
+  # Outputs
+  # ─────────────────────────────────────────────────────────
+Outputs:
+  PasswordSecretArn:
+    Description: ARN of the Secrets Manager secret holding the one-time password
+    Value: !Ref OneTimePassword
+
+  S3UserGroupName:
+    Description: S3 IAM Group
+    Value: !Ref S3UserGroup
+
+  EC2UserGroupName:
+    Description: EC2 IAM Group
+    Value: !Ref EC2UserGroup
