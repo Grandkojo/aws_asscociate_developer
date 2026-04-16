@@ -11,7 +11,7 @@ Resources:
   OneTimePassword:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: /iam/one-time-password
+      Name: /iam/one-time-passwordd
       Description: Shared temporary password for all IAM console users
       GenerateSecretString:
         SecretStringTemplate: '{}'
