@@ -97,6 +97,16 @@ Resources:
         Password: !Sub '{{resolve:secretsmanager:${OneTimePassword}:SecretString:password}}'
         PasswordResetRequired: true
 
+  S3User44:
+    Type: AWS::IAM::User
+    DependsOn: OneTimePassword
+    Properties:
+      UserName: s3-user44
+      Groups:
+        - !Ref S3UserGroup
+      LoginProfile:
+        Password: !Sub '{{resolve:secretsmanager:${OneTimePassword}:SecretString:password}}'
+        PasswordResetRequired: true
   # ─────────────────────────────────────────────────────────
   # ec2-user2 only – create EC2 instances
   # ec2-user1 is NOT granted this permission (prevented by omission)
