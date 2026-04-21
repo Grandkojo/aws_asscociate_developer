@@ -110,15 +110,64 @@ Resources:
         Statement:
           - Effect: Allow
             Action:
+              # Launch + tagging
               - ec2:RunInstances
               - ec2:CreateTags
+              # Console wizard describes
               - ec2:DescribeImages
               - ec2:DescribeVpcs
               - ec2:DescribeSubnets
               - ec2:DescribeSecurityGroups
               - ec2:DescribeKeyPairs
+              - ec2:DescribeAccountAttributes
+              - ec2:DescribeAvailabilityZones
+              - ec2:DescribeInstanceTypeOfferings
+              - ec2:DescribeInstanceAttribute
+              - ec2:DescribeTags
+              - ec2:DescribeNetworkInterfaces
+              - ec2:DescribeInternetGateways
+              - ec2:DescribeRouteTables
+              - ec2:DescribeDhcpOptions
+              # Storage
+              - ec2:DescribeVolumes
+              - ec2:DescribeSnapshots
+              - ec2:CreateVolume
+              - ec2:AttachVolume
+              - ec2:DeleteVolume
+              # Launch templates / AMIs
+              - ec2:DescribeLaunchTemplates
+              - ec2:DescribeLaunchTemplateVersions
+              - ec2:GetLaunchTemplateData
+              # Key pairs + security groups
               - ec2:CreateKeyPair
+              - ec2:ImportKeyPair
               - ec2:CreateSecurityGroup
+              - ec2:AuthorizeSecurityGroupIngress
+              - ec2:AuthorizeSecurityGroupEgress
+              - ec2:RevokeSecurityGroupIngress
+              - ec2:RevokeSecurityGroupEgress
+              # Instance lifecycle
+              - ec2:StartInstances
+              - ec2:StopInstances
+              - ec2:RebootInstances
+              - ec2:TerminateInstances
+              - ec2:ModifyInstanceAttribute
+            Resource: '*'
+          # PassRole is required to attach an IAM instance profile at launch.
+          # Scoped to the EC2 service via a condition as a least-privilege guardrail.
+          - Effect: Allow
+            Action:
+              - iam:PassRole
+            Resource: '*'
+            Condition:
+              StringEquals:
+                iam:PassedToService: ec2.amazonaws.com
+          - Effect: Allow
+            Action:
+              - iam:ListInstanceProfiles
+              - iam:ListInstanceProfilesForRole
+              - iam:GetInstanceProfile
+              - iam:ListRoles
             Resource: '*'
       Users:
         - !Ref EC2User2
