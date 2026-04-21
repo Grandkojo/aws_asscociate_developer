@@ -117,6 +117,8 @@ Resources:
               - ec2:DescribeSubnets
               - ec2:DescribeSecurityGroups
               - ec2:DescribeKeyPairs
+              - ec2:CreateKeyPair
+              - ec2:CreateSecurityGroup
             Resource: '*'
       Users:
         - !Ref EC2User2
