@@ -32,10 +32,18 @@ Resources:
       Properties:
         GroupDescription: No inbound; SSM Session Manager only
         VpcId: !Ref MyVPC
+        SecurityGroupIngress:
+          - IpProtocol: icmp
+            FromPort: -1
+            ToPort: -1
+            CidrIp: 10.0.0.0/16
+            Description: Allow ICMP from VPC for validation pings
         SecurityGroupEgress:
           - IpProtocol: -1
             CidrIp: 0.0.0.0/0
             Description: Allow all egress (needed for agent to reach SSM endpoints)
+            
+
        
     PublicSecurityGroup:
       Type: AWS::EC2::SecurityGroup
