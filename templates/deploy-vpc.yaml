@@ -1,0 +1,331 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: deploy a highly available, secure, multi-AZ Virtual Private Cloud (VPC)
+
+Parameters:
+    VpcCIDR:
+      Type: String
+      Default: 10.0.0.0/16
+    AmazonLinux2023AmiId:
+      Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+      Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Resources:
+
+    #IAM Role for EC2 to be accessed only by SessionManager
+    MySessionManagerIAMRole:
+      Type: AWS::IAM::Role
+      Properties:
+          AssumeRolePolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Principal:
+                  Service: ec2.amazonaws.com
+                Action: 
+                  - sts:AssumeRole
+          ManagedPolicyArns:
+            - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+    #SecurityGroups
+    SSMOnlySecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: No inbound; SSM Session Manager only
+        VpcId: !Ref MyVPC
+        SecurityGroupEgress:
+          - IpProtocol: -1
+            CidrIp: 0.0.0.0/0
+            Description: Allow all egress (needed for agent to reach SSM endpoints)
+       
+    PublicSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Allow HTTP access and deny inbound ssh access
+        SecurityGroupIngress:
+            - IpProtocol: tcp
+              FromPort: 80
+              ToPort: 80
+              CidrIp: 0.0.0.0/0
+            - IpProtocol: icmp
+              FromPort: 8
+              ToPort: -1
+              CidrIp: 10.0.0.0/16 
+        VpcId: !Ref MyVPC
+
+
+    #Session Manager Instance Profile
+    MySSMInstanceProfile:
+      Type: AWS::IAM::InstanceProfile
+      Properties:
+          Roles: [!Ref MySessionManagerIAMRole]
+
+    #VPC
+    MyVPC: 
+     Type: AWS::EC2::VPC
+     Properties: 
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: MyVPC
+
+    #Public Subnets
+    MyPublicSubnet1:
+      Type: AWS::EC2::Subnet
+      Properties:
+          VpcId: !Ref MyVPC
+          CidrBlock: 10.0.1.0/24
+          AvailabilityZone: !Select [0, !GetAZs '']
+          MapPublicIpOnLaunch: true
+          Tags:
+            - Key: Name
+              Value: public-subnet-1
+          
+    MyPublicSubnet2:
+      Type: AWS::EC2::Subnet
+      Properties:
+          VpcId: !Ref MyVPC
+          CidrBlock: 10.0.2.0/24
+          AvailabilityZone: !Select [1, !GetAZs '']
+          MapPublicIpOnLaunch: true
+          Tags:
+            - Key: Name
+              Value: public-subnet-2
+
+    #Private Subnets
+    MyPrivateSubnet1:
+      Type: AWS::EC2::Subnet
+      Properties:
+          VpcId: !Ref MyVPC
+          CidrBlock: 10.0.3.0/24
+          AvailabilityZone: !Select [0, !GetAZs '']
+          Tags:
+            - Key: Name
+              Value: private-subnet-1
+          
+    MyPrivateSubnet2:
+      Type: AWS::EC2::Subnet
+      Properties:
+          VpcId: !Ref MyVPC
+          CidrBlock: 10.0.4.0/24
+          AvailabilityZone: !Select [1, !GetAZs '']
+          Tags:
+            - Key: Name
+              Value: private-subnet-2
+
+
+    #Internet Gateways
+    InternetGateway:
+      Type: AWS::EC2::InternetGateway
+      Properties:
+        Tags:
+          - Key: Name
+            Value: MyIGW 
+
+    #Attach IGW to VPC
+    AttachGateway:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+          VpcId: !Ref MyVPC
+          InternetGatewayId: !Ref InternetGateway
+
+    #Elastic IP for NAT Gateways
+    MyNATGateway1EIP:
+      Type: AWS::EC2::EIP
+      DependsOn: AttachGateway
+      Properties:
+        Domain: vpc
+        
+    MyNATGateway2EIP:
+      Type: AWS::EC2::EIP
+      DependsOn: AttachGateway
+      Properties:
+        Domain: vpc
+
+    #NAT Gateways
+    MyNATGateway1:
+      Type: AWS::EC2::NatGateway
+      Properties:
+        AllocationId: !GetAtt MyNATGateway1EIP.AllocationId
+        SubnetId: !Ref MyPublicSubnet1
+        Tags:
+          - Key: Name
+            Value: nat-gateway-1
+
+    MyNATGateway2:
+      Type: AWS::EC2::NatGateway
+      Properties:
+        AllocationId: !GetAtt MyNATGateway2EIP.AllocationId
+        SubnetId: !Ref MyPublicSubnet2
+        Tags:
+          - Key: Name
+            Value: nat-gateway-2
+
+    #Public Route table
+    MyPublicRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+          VpcId: !Ref MyVPC
+
+    #Create route rules for public route table
+    MyPublicRoute:
+      Type: AWS::EC2::Route
+      DependsOn: AttachGateway
+      Properties:
+          RouteTableId: !Ref MyPublicRouteTable
+          DestinationCidrBlock: 0.0.0.0/0
+          GatewayId: !Ref InternetGateway
+
+
+    #Attach route table to public subnets
+    MyPublicSubnetRouteAssociation1:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+          RouteTableId: !Ref MyPublicRouteTable
+          SubnetId: !Ref MyPublicSubnet1
+
+    MyPublicSubnetRouteAssociation2:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+          RouteTableId: !Ref MyPublicRouteTable
+          SubnetId: !Ref MyPublicSubnet2
+
+
+    #Private Route tables (one per AZ)
+    MyPrivateRouteTable1:
+      Type: AWS::EC2::RouteTable
+      Properties:
+          VpcId: !Ref MyVPC
+          Tags:
+            - Key: Name
+              Value: private-rt-1
+
+    MyPrivateRouteTable2:
+      Type: AWS::EC2::RouteTable
+      Properties:
+          VpcId: !Ref MyVPC
+          Tags:
+            - Key: Name
+              Value: private-rt-2
+
+    #Create route rules for private route tables
+    MyPrivateRoute1:
+      Type: AWS::EC2::Route
+      Properties:
+          RouteTableId: !Ref MyPrivateRouteTable1
+          DestinationCidrBlock: 0.0.0.0/0
+          NatGatewayId: !Ref MyNATGateway1
+
+    MyPrivateRoute2:
+      Type: AWS::EC2::Route
+      Properties:
+          RouteTableId: !Ref MyPrivateRouteTable2
+          DestinationCidrBlock: 0.0.0.0/0
+          NatGatewayId: !Ref MyNATGateway2
+
+    #Attach route tables to private subnets (subnet-AZ matches NAT-AZ)
+    MyPrivateSubnetRouteAssociation1:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+          RouteTableId: !Ref MyPrivateRouteTable1
+          SubnetId: !Ref MyPrivateSubnet1
+
+    MyPrivateSubnetRouteAssociation2:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+          RouteTableId: !Ref MyPrivateRouteTable2
+          SubnetId: !Ref MyPrivateSubnet2
+
+    
+    #2 public ec2 instances
+    MyPublicEC21:
+      Type: AWS::EC2::Instance
+      Properties:
+          ImageId: !Ref AmazonLinux2023AmiId
+          SubnetId: !Ref MyPublicSubnet1
+          InstanceType: t3.micro 
+          UserData: 
+           Fn::Base64: |
+            #!/bin/bash
+            yum update -y
+            yum install -y httpd
+            systemctl enable --now httpd
+            cat > /var/www/html/index.html << EOF
+            <html><body>
+              <h1>Ernest Kojo Owusu Essien</h1>
+              <h2>Lab: Highly Available Multi-AZ VPC</h2>
+              <p>Served from $(hostname) in AZ $(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)</p>
+            </body></html>
+            EOF
+          SecurityGroupIds:
+            - !Ref PublicSecurityGroup
+          IamInstanceProfile: !Ref MySSMInstanceProfile
+          Tags:
+            - Key: Name
+              Value: ssm-public-instance-1
+
+    MyPublicEC22:
+      Type: AWS::EC2::Instance
+      Properties:
+          ImageId: !Ref AmazonLinux2023AmiId
+          SubnetId: !Ref MyPublicSubnet2
+          InstanceType: t3.micro 
+          UserData: 
+           Fn::Base64: |
+            #!/bin/bash
+            yum update -y
+            yum install -y httpd
+            systemctl enable --now httpd
+            cat > /var/www/html/index.html << EOF
+            <html><body>
+              <h1>Ernest Kojo Owusu Essien</h1>
+              <h2>Lab: Highly Available Multi-AZ VPC</h2>
+              <p>Served from $(hostname) in AZ $(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)</p>
+            </body></html>
+            EOF
+          SecurityGroupIds:
+            - !Ref PublicSecurityGroup
+          IamInstanceProfile: !Ref MySSMInstanceProfile
+          Tags:
+            - Key: Name
+              Value: ssm-public-instance-2
+
+    #2 private ec2 instances
+    MyPrivateEC21:
+      Type: AWS::EC2::Instance
+      Properties:
+          ImageId: !Ref AmazonLinux2023AmiId
+          SubnetId: !Ref MyPrivateSubnet1
+          InstanceType: t3.micro 
+          SecurityGroupIds:
+            - !Ref SSMOnlySecurityGroup
+          IamInstanceProfile: !Ref MySSMInstanceProfile
+          Tags:
+            - Key: Name
+              Value: ssm-private-instance-1
+
+    MyPrivateEC22:
+      Type: AWS::EC2::Instance
+      Properties:
+          ImageId: !Ref AmazonLinux2023AmiId
+          SubnetId: !Ref MyPrivateSubnet2
+          InstanceType: t3.micro 
+          SecurityGroupIds:
+            - !Ref SSMOnlySecurityGroup
+          IamInstanceProfile: !Ref MySSMInstanceProfile
+          Tags:
+            - Key: Name
+              Value: ssm-private-instance-2
+
+Outputs:
+    WebServer1Url:
+      Description: URL of public web server in AZ-a
+      Value: !Sub "http://${MyPublicEC21.PublicDnsName}"
+    WebServer2Url:
+      Description: URL of public web server in AZ-a
+      Value: !Sub "http://${MyPublicEC22.PublicDnsName}"
+    PrivateInstance1Id:
+      Value: !Ref MyPrivateEC21
+    PrivateInstance2Id:
+      Value: !Ref MyPrivateEC22
