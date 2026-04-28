@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   IAM users (ec2-user1, ec2-user2, s3-user) with groups, console access,
-  and a shared one-time password stored in Secrets Manager.
+  permission boundaries, and a shared one-time password stored in Secrets Manager.
 
 Resources:
 
@@ -21,14 +21,103 @@ Resources:
         RequireEachIncludedType: true
 
   # ─────────────────────────────────────────────────────────
-  # S3 Group – list S3 buckets
+  # Permission Boundaries
+  #   Boundaries cap the MAXIMUM permissions a user can ever have.
+  #   Effective permissions = identity policies  boundary.
+  # ─────────────────────────────────────────────────────────
+  EC2ReadOnlyBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: EC2ReadOnlyBoundary
+      Description: Caps a user at EC2 read-only operations and self-service password change
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ReadOnlyEC2
+            Effect: Allow
+            Action:
+              - ec2:Describe*
+              - ec2:Get*
+              - ec2:List*
+            Resource: '*'
+          - Sid: SelfServiceIAM
+            Effect: Allow
+            Action:
+              - iam:ChangePassword
+              - iam:GetUser
+              - iam:GetLoginProfile
+            Resource: '*'
+
+  EC2FullBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: EC2FullBoundary
+      Description: Caps a user at full EC2 (launch + manage) and self-service password change
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: FullEC2
+            Effect: Allow
+            Action:
+              - ec2:*
+            Resource: '*'
+          - Sid: PassRoleToEC2Only
+            Effect: Allow
+            Action:
+              - iam:PassRole
+            Resource: '*'
+            Condition:
+              StringEquals:
+                iam:PassedToService: ec2.amazonaws.com
+          - Sid: ReadInstanceProfiles
+            Effect: Allow
+            Action:
+              - iam:ListInstanceProfiles
+              - iam:ListInstanceProfilesForRole
+              - iam:GetInstanceProfile
+              - iam:ListRoles
+            Resource: '*'
+          - Sid: SelfServiceIAM
+            Effect: Allow
+            Action:
+              - iam:ChangePassword
+              - iam:GetUser
+              - iam:GetLoginProfile
+            Resource: '*'
+
+  S3ListBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: S3ListBoundary
+      Description: Caps a user at S3 list operations and self-service password change
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ListS3
+            Effect: Allow
+            Action:
+              - s3:ListAllMyBuckets
+              - s3:GetBucketLocation
+            Resource: '*'
+          - Sid: SelfServiceIAM
+            Effect: Allow
+            Action:
+              - iam:ChangePassword
+              - iam:GetUser
+              - iam:GetLoginProfile
+            Resource: '*'
+
+  # ─────────────────────────────────────────────────────────
+  # Groups – grant identity-level permissions.
+  #   Both EC2 users belong to the SAME group (broad EC2 access);
+  #   their boundaries are what differentiate them.
   # ─────────────────────────────────────────────────────────
   S3UserGroup:
     Type: AWS::IAM::Group
     Properties:
       GroupName: S3UserGroup
       Policies:
-        - PolicyName: S3ListBucketsPolicy
+        - PolicyName: S3GroupPolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -39,36 +128,45 @@ Resources:
                   - iam:ChangePassword
                 Resource: '*'
 
-  # ─────────────────────────────────────────────────────────
-  # EC2 Group – list EC2 instances only
-  # (ec2-user2 gets create permission via a separate policy below)
-  # ─────────────────────────────────────────────────────────
   EC2UserGroup:
     Type: AWS::IAM::Group
     Properties:
       GroupName: EC2UserGroup
       Policies:
-        - PolicyName: EC2ListPolicy
+        - PolicyName: EC2GroupPolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
-                  - ec2:DescribeInstances
-                  - ec2:DescribeInstanceStatus
-                  - ec2:DescribeInstanceTypes
-                  - ec2:DescribeRegions
+                  - ec2:*
                   - iam:ChangePassword
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: ec2.amazonaws.com
+              - Effect: Allow
+                Action:
+                  - iam:ListInstanceProfiles
+                  - iam:ListInstanceProfilesForRole
+                  - iam:GetInstanceProfile
+                  - iam:ListRoles
                 Resource: '*'
 
   # ─────────────────────────────────────────────────────────
   # IAM Users
+  #   Identity policies (via groups) grant broad EC2/S3 access;
+  #   the PermissionsBoundary on each user is what scopes them down.
   # ─────────────────────────────────────────────────────────
   EC2User1:
     Type: AWS::IAM::User
-    DependsOn: OneTimePassword
     Properties:
       UserName: ec2-user1
+      PermissionsBoundary: !Ref EC2ReadOnlyBoundary
       Groups:
         - !Ref EC2UserGroup
       LoginProfile:
@@ -77,9 +175,9 @@ Resources:
 
   EC2User2:
     Type: AWS::IAM::User
-    DependsOn: OneTimePassword
     Properties:
       UserName: ec2-user2
+      PermissionsBoundary: !Ref EC2FullBoundary
       Groups:
         - !Ref EC2UserGroup
       LoginProfile:
@@ -88,9 +186,9 @@ Resources:
 
   S3User:
     Type: AWS::IAM::User
-    DependsOn: OneTimePassword
     Properties:
       UserName: s3-user
+      PermissionsBoundary: !Ref S3ListBoundary
       Groups:
         - !Ref S3UserGroup
       LoginProfile:
@@ -99,88 +197,14 @@ Resources:
 
   S3User44:
     Type: AWS::IAM::User
-    DependsOn: OneTimePassword
     Properties:
       UserName: s3-user44
+      PermissionsBoundary: !Ref S3ListBoundary
       Groups:
         - !Ref S3UserGroup
       LoginProfile:
         Password: !Sub '{{resolve:secretsmanager:${OneTimePassword}:SecretString:password}}'
         PasswordResetRequired: true
-  # ─────────────────────────────────────────────────────────
-  # ec2-user2 only – create EC2 instances
-  # ec2-user1 is NOT granted this permission (prevented by omission)
-  # ─────────────────────────────────────────────────────────
-  EC2User2CreatePolicy:
-    Type: AWS::IAM::Policy
-    Properties:
-      PolicyName: EC2CreateInstancePolicy
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Action:
-              # Launch + tagging
-              - ec2:RunInstances
-              - ec2:CreateTags
-              # Console wizard describes
-              - ec2:DescribeImages
-              - ec2:DescribeVpcs
-              - ec2:DescribeSubnets
-              - ec2:DescribeSecurityGroups
-              - ec2:DescribeKeyPairs
-              - ec2:DescribeAccountAttributes
-              - ec2:DescribeAvailabilityZones
-              - ec2:DescribeInstanceTypeOfferings
-              - ec2:DescribeInstanceAttribute
-              - ec2:DescribeTags
-              - ec2:DescribeNetworkInterfaces
-              - ec2:DescribeInternetGateways
-              - ec2:DescribeRouteTables
-              - ec2:DescribeDhcpOptions
-              # Storage
-              - ec2:DescribeVolumes
-              - ec2:DescribeSnapshots
-              - ec2:CreateVolume
-              - ec2:AttachVolume
-              - ec2:DeleteVolume
-              # Launch templates / AMIs
-              - ec2:DescribeLaunchTemplates
-              - ec2:DescribeLaunchTemplateVersions
-              - ec2:GetLaunchTemplateData
-              # Key pairs + security groups
-              - ec2:CreateKeyPair
-              - ec2:ImportKeyPair
-              - ec2:CreateSecurityGroup
-              - ec2:AuthorizeSecurityGroupIngress
-              - ec2:AuthorizeSecurityGroupEgress
-              - ec2:RevokeSecurityGroupIngress
-              - ec2:RevokeSecurityGroupEgress
-              # Instance lifecycle
-              - ec2:StartInstances
-              - ec2:StopInstances
-              - ec2:RebootInstances
-              - ec2:TerminateInstances
-              - ec2:ModifyInstanceAttribute
-            Resource: '*'
-          # PassRole is required to attach an IAM instance profile at launch.
-          # Scoped to the EC2 service via a condition as a least-privilege guardrail.
-          - Effect: Allow
-            Action:
-              - iam:PassRole
-            Resource: '*'
-            Condition:
-              StringEquals:
-                iam:PassedToService: ec2.amazonaws.com
-          - Effect: Allow
-            Action:
-              - iam:ListInstanceProfiles
-              - iam:ListInstanceProfilesForRole
-              - iam:GetInstanceProfile
-              - iam:ListRoles
-            Resource: '*'
-      Users:
-        - !Ref EC2User2
 
   # ─────────────────────────────────────────────────────────
   # Outputs
@@ -197,3 +221,15 @@ Outputs:
   EC2UserGroupName:
     Description: EC2 IAM Group
     Value: !Ref EC2UserGroup
+
+  EC2ReadOnlyBoundaryArn:
+    Description: Permission boundary capping users at EC2 read-only
+    Value: !Ref EC2ReadOnlyBoundary
+
+  EC2FullBoundaryArn:
+    Description: Permission boundary capping users at full EC2
+    Value: !Ref EC2FullBoundary
+
+  S3ListBoundaryArn:
+    Description: Permission boundary capping users at S3 list operations
+    Value: !Ref S3ListBoundary
