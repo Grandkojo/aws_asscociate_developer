@@ -1,0 +1,287 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  HA auto-scaling web tier — internet-facing ALB in public subnets, EC2 in private subnets,
+  single NAT Gateway for outbound internet, ASG 1/1/4 with CPU target tracking at 30%.
+
+Parameters:
+  VpcCIDR:
+    Type: String
+    Default: 10.0.0.0/16
+
+  AmazonLinux2023AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Resources:
+  # ─── VPC & subnets (ALB = public / ASG = private, two AZs) ───
+  ASLMyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+
+  ASLPublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ASLMyVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+
+  ASLPublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ASLMyVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+
+  ASLPrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ASLMyVPC
+      CidrBlock: 10.0.3.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: false
+
+  ASLPrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ASLMyVPC
+      CidrBlock: 10.0.4.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: false
+
+  ASLInternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  ASLAttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref ASLMyVPC
+      InternetGatewayId: !Ref ASLInternetGateway
+
+  ASLNatEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: ASLAttachGateway
+    Properties:
+      Domain: vpc
+
+  # Single NAT (cost-optimized “regional” pattern — one NAT serves all private subnets)
+  ASLNatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt ASLNatEIP.AllocationId
+      SubnetId: !Ref ASLPublicSubnet1
+
+  ASLPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ASLMyVPC
+
+  ASLPublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: ASLAttachGateway
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W66
+            reason: Default route to IGW is required for public subnets (ALB).
+      cfn-lint:
+        config:
+          ignore_checks:
+            - EIAMRouteToIGW
+    Properties:
+      RouteTableId: !Ref ASLPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref ASLInternetGateway
+
+  ASLPublicSubnetAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref ASLPublicRouteTable
+      SubnetId: !Ref ASLPublicSubnet1
+
+  ASLPublicSubnetAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref ASLPublicRouteTable
+      SubnetId: !Ref ASLPublicSubnet2
+
+  ASLPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ASLMyVPC
+
+  ASLPrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref ASLPrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref ASLNatGateway
+
+  ASLPrivateSubnetAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref ASLPrivateRouteTable
+      SubnetId: !Ref ASLPrivateSubnet1
+
+  ASLPrivateSubnetAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref ASLPrivateRouteTable
+      SubnetId: !Ref ASLPrivateSubnet2
+
+  # ─── Security groups (no SSH on instances; HTTP only from ALB) ───
+  ASLALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HTTP from internet to ALB
+      VpcId: !Ref ASLMyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  ASLWebInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HTTP from ALB only; no direct inbound from internet
+      VpcId: !Ref ASLMyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ASLALBSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  # ─── Launch template (Apache + instance identity for demos) ───
+  ASLEC2LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub '${AWS::StackName}-web-lt'
+      VersionDescription: v1
+      LaunchTemplateData:
+        ImageId: !Ref AmazonLinux2023AmiId
+        InstanceType: t3.micro
+        SecurityGroupIds:
+          - !Ref ASLWebInstanceSecurityGroup
+        MetadataOptions:
+          HttpTokens: optional
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            set -e
+            yum update -y
+            yum install -y httpd
+            systemctl enable --now httpd
+            IID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+            LIP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
+            HN=$(hostname)
+            cat > /var/www/html/index.html << EOF
+            <!DOCTYPE html>
+            <html><head><title>Web tier</title></head><body>
+              <h1>Hello World from ${HN}</h1>
+              <p><strong>Instance ID:</strong> ${IID}</p>
+              <p><strong>Private IP:</strong> ${LIP}</p>
+              <p>Refresh the page — the ALB should rotate you across healthy instances.</p>
+            </body></html>
+            EOF
+
+  ASLApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      Scheme: internet-facing
+      IpAddressType: ipv4
+      Subnets:
+        - !Ref ASLPublicSubnet1
+        - !Ref ASLPublicSubnet2
+      SecurityGroups:
+        - !Ref ASLALBSecurityGroup
+      LoadBalancerAttributes:
+        - Key: routing.http.drop_invalid_header_fields.enabled
+          Value: 'true'
+
+  ASLApplicationLBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref ASLMyVPC
+      Protocol: HTTP
+      Port: 80
+      TargetType: instance
+      TargetGroupAttributes:
+        - Key: load_balancing.algorithm.type
+          Value: round_robin
+      HealthCheckEnabled: true
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      Matcher:
+        HttpCode: '200'
+
+  ASLApplicationLBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ASLApplicationLBTargetGroup
+      LoadBalancerArn: !Ref ASLApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  ASLAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref ASLPrivateSubnet1
+        - !Ref ASLPrivateSubnet2
+      LaunchTemplate:
+        LaunchTemplateId: !Ref ASLEC2LaunchTemplate
+        Version: !GetAtt ASLEC2LaunchTemplate.LatestVersionNumber
+      MinSize: 1
+      MaxSize: 4
+      DesiredCapacity: 1
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 300
+      TargetGroupARNs:
+        - !Ref ASLApplicationLBTargetGroup
+      MetricsCollection:
+        - Granularity: 1Minute
+
+  # Scale out when average CPU is above 30% (target tracking keeps ASG near this level)
+  ASLTargetTrackingScalingPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref ASLAutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 30.0
+        DisableScaleIn: false
+
+Outputs:
+  LoadBalancerDNS:
+    Description: Public endpoint for stakeholders — paste into a browser
+    Value: !GetAtt ASLApplicationLoadBalancer.DNSName
+    Export:
+      Name: !Sub '${AWS::StackName}-ALBDNS'
+
+  VpcId:
+    Description: VPC ID
+    Value: !Ref ASLMyVPC
+
+  AutoScalingGroupName:
+    Description: Watch scaling activity and instance lifecycle in the console
+    Value: !Ref ASLAutoScalingGroup
+
+  TargetGroupArn:
+    Description: Target group ARN — verify registered targets after scale-out
+    Value: !Ref ASLApplicationLBTargetGroup
