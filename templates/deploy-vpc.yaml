@@ -10,8 +10,7 @@ Parameters:
       Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
 
 Resources:
-
-    #IAM Role for EC2 to be accessed only by SessionManager
+    
     MySessionManagerIAMRole:
       Type: AWS::IAM::Role
       Properties:
@@ -25,12 +24,13 @@ Resources:
                   - sts:AssumeRole
           ManagedPolicyArns:
             - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+            
 
     #SecurityGroups
     SSMOnlySecurityGroup:
       Type: AWS::EC2::SecurityGroup
       Properties:
-        GroupDescription: No inbound; SSM Session Manager only
+        GroupDescription: Allow ICMP pings; SSM Session Manager only
         VpcId: !Ref MyVPC
         SecurityGroupIngress:
           - IpProtocol: icmp
