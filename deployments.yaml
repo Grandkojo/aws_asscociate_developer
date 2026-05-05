@@ -1,1 +1,3 @@
-template-file-path: ./templates/containerized-web-app.yaml
+template-file-path: templates/containerized-web-app.yaml
+parameters: {}
+tags: {}
