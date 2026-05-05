@@ -1,1 +1,1 @@
-template-file-path: ./templates/deploy-vpc.yaml
+template-file-path: ./templates/containerized-web-app.yaml
