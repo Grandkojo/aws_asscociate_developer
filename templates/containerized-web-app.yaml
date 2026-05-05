@@ -162,6 +162,26 @@ Resources:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
 
+  # Session Manager — credentials for SSM Agent on private web instances
+  ASLWebSSMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  ASLWebInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ASLWebSSMRole
+
   # ─── Launch template (Apache + instance identity for demos) ───
   ASLEC2LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
@@ -173,6 +193,8 @@ Resources:
         InstanceType: t3.micro
         SecurityGroupIds:
           - !Ref ASLWebInstanceSecurityGroup
+        IamInstanceProfile:
+          Name: !Ref ASLWebInstanceProfile
         MetadataOptions:
           HttpTokens: optional
         UserData:
