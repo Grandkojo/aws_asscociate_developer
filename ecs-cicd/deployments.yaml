@@ -1,4 +1,4 @@
-template-file-path: ./templates/ecs-cicd.yaml
+template-file-path: ./ecs-cicd/templates/ecs-cicd.yaml
 parameters:
   GitHubOrg: Grandkojo
   AppRepoName: ecs-cicd-app
