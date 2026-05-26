@@ -1,0 +1,9 @@
+template-file-path: ./templates/ecs-cicd.yaml
+parameters:
+  GitHubOrg: Grandkojo
+  AppRepoName: ecs-cicd-app
+  ProjectName: ecs-cicd-lab
+tags:
+  Project: ecs-cicd-lab
+  Lab: ECS-CICD
+  ManagedBy: CloudFormation-GitSync
