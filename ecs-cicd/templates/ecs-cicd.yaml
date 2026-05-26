@@ -615,7 +615,9 @@ Resources:
       HealthCheckProtocol: HTTP
       Matcher:
         HttpCode: '200-499'
-      DeregistrationDelay: 30
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '30'
       Tags:
         - Key: Project
           Value: !Ref ProjectName
@@ -634,7 +636,9 @@ Resources:
       HealthCheckProtocol: HTTP
       Matcher:
         HttpCode: '200-499'
-      DeregistrationDelay: 30
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '30'
       Tags:
         - Key: Project
           Value: !Ref ProjectName
