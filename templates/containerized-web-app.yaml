@@ -83,15 +83,6 @@ Resources:
   ASLPublicDefaultRoute:
     Type: AWS::EC2::Route
     DependsOn: ASLAttachGateway
-    Metadata:
-      cfn_nag:
-        rules_to_suppress:
-          - id: W66
-            reason: Default route to IGW is required for public subnets (ALB).
-      cfn-lint:
-        config:
-          ignore_checks:
-            - EIAMRouteToIGW
     Properties:
       RouteTableId: !Ref ASLPublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0

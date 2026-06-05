@@ -346,6 +346,18 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: CloudWatchLogsKMS
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kms:Encrypt
+                  - kms:Decrypt
+                  - kms:GenerateDataKey*
+                  - kms:DescribeKey
+                Resource: !GetAtt LogGroupKmsKey.Arn
       Tags:
         - Key: Project
           Value: !Ref ProjectName
@@ -524,11 +536,41 @@ Resources:
 
   # ─── CloudWatch Logs ──────────────────────────────────────────────────────────
 
+  LogGroupKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: !Sub '${ProjectName} ECS CloudWatch Logs encryption'
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: RootAccountAdmin
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: kms:*
+            Resource: '*'
+          - Sid: CloudWatchLogsUse
+            Effect: Allow
+            Principal:
+              Service: !Sub 'logs.${AWS::Region}.amazonaws.com'
+            Action:
+              - kms:Encrypt*
+              - kms:Decrypt*
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:Describe*
+            Resource: '*'
+            Condition:
+              ArnLike:
+                'kms:EncryptionContext:aws:logs:arn': !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+
   LogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub '/ecs/${ProjectName}'
       RetentionInDays: 14
+      KmsKeyId: !GetAtt LogGroupKmsKey.Arn
 
   # ─── ECS Cluster & Task Definition ───────────────────────────────────────────
 
@@ -700,10 +742,55 @@ Resources:
         ScaleInCooldown: 300
         DisableScaleIn: false
 
-  # ─── S3 Artifact Bucket ───────────────────────────────────────────────────────
+  # ─── S3 Buckets ───────────────────────────────────────────────────────────────
+
+  # Dedicated access-log sink; logging is not enabled on this bucket (AWS disallows self-logging)
+  S3AccessLogsBucket:
+    Type: AWS::S3::Bucket
+    Metadata:
+      cfn-guard:
+        SuppressedRules:
+          - S3_BUCKET_LOGGING_ENABLED
+    Properties:
+      BucketName: !Sub '${ProjectName}-s3-access-logs-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  S3AccessLogsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3AccessLogsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowArtifactBucketAccessLogs
+            Effect: Allow
+            Principal:
+              Service: logging.s3.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub '${S3AccessLogsBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:aws:s3:::${ProjectName}-artifacts-${AWS::AccountId}'
 
   ArtifactBucket:
     Type: AWS::S3::Bucket
+    DependsOn: S3AccessLogsBucketPolicy
     DeletionPolicy: Retain
     Properties:
       BucketName: !Sub '${ProjectName}-artifacts-${AWS::AccountId}'
@@ -718,6 +805,9 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      LoggingConfiguration:
+        DestinationBucketName: !Ref S3AccessLogsBucket
+        LogFilePrefix: artifacts/
       Tags:
         - Key: Project
           Value: !Ref ProjectName
@@ -823,6 +913,8 @@ Resources:
                 DeploymentGroupName: !Sub '${ProjectName}-dg'
                 AppSpecTemplateArtifact: AppSpecArtifact
                 AppSpecTemplatePath: appspec.yaml
+                TaskDefinitionTemplateArtifact: AppSpecArtifact
+                TaskDefinitionTemplatePath: taskdef.json
               InputArtifacts:
                 - Name: AppSpecArtifact
               RunOrder: 1

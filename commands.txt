@@ -15,3 +15,18 @@
 
 #3
 12. aws iam attach-user-policy --user-name s3user --policy-arn arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess
+
+
+sh-5.2$  aws s3 --endpoint-url https://s3.eu-north-1.amazonaws.com ls s3://accessible-workshop-bucket
+2026-05-07 11:31:25     108969 ARMS Mobile VPN infra Before.drawio.png
+sh-5.2$     
+
+An error occurred (AccessDenied) when calling the ListObjectsV2 operation: User: arn:aws:sts::953314945587:assumed-role/WorkshopEC2InstanceRole/i-01a0959c7cb16db59 is not authorized to perform: s3:ListBucket onresource: "arn:aws:s3:::unaccessible-workshop-bucket" with an explicit deny in a VPC endpoint policy
+sh-5.2$ dig unaccessible-workshop-bucket.vpce-06b57ab6d218156f0-iiuyvziw.s3.eu-north-1.vpce.amazonaws.com
+
+dig unaccessible-workshop-bucket.vpce-06b57ab6d218156f0-iiuyvziw.s3.eu-north-1.vpce.amazonaws.com
+
+sh-5.2$  aws s3 --endpoint-url https://bucket.vpce-06b57ab6d218156f0-iiuyvziw.s3.eu-north-1.vpce.amazonaws.com ls s3://accessible-workshop-bucket
+
+An error occurred (AccessDenied) when calling the ListObjectsV2 operation: User: arn:aws:sts::953314945587:assumed-role/WorkshopEC2InstanceRole/i-01a0959c7cb16db59 is not authorized to perform: s3:ListBucket onresource: "arn:aws:s3:::accessible-workshop-bucket" with an explicit deny in a VPC endpoint policy
+sh-5.2$  aws s3 --endpoint-url https://bucket.vpce-06b57ab6d218156f0-iiuyvziw.s3.eu-north-1.vpce.amazonaws.com ls s3://unaccessible-workshop-bucket

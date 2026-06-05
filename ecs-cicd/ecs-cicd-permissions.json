@@ -1,0 +1,140 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "SyncToCloudFormation",
+            "Effect": "Allow",
+            "Action": [
+                "secretsmanager:GetRandomPassword",
+                "secretsmanager:CreateSecret",
+                "secretsmanager:TagResource",
+                "secretsmanager:DescribeSecret",
+                "secretsmanager:DeleteSecret",
+                "secretsmanager:PutSecretValue",
+                "secretsmanager:GetSecretValue",
+                "iam:GetGroup",
+                "iam:CreateGroup",
+                "iam:DeleteGroup",
+                "iam:PutGroupPolicy",
+                "iam:DeleteGroupPolicy",
+                "iam:UpdateGroup",
+                "iam:CreateUser",
+                "iam:DeleteUser",
+                "iam:GetUser",
+                "iam:AddUserToGroup",
+                "iam:RemoveUserFromGroup",
+                "iam:CreateLoginProfile",
+                "iam:DeleteLoginProfile",
+                "iam:UpdateLoginProfile",
+                "iam:GetUserPolicy",
+                "iam:PutUserPolicy",
+                "iam:DeleteUserPolicy",
+                "iam:CreatePolicy",
+                "iam:DeletePolicy",
+                "iam:AttachUserPolicy",
+                "iam:DetachUserPolicy",
+                "iam:CreateRole",
+                "iam:DeleteRole",
+                "iam:GetRole",
+                "iam:UpdateRole",
+                "iam:PutRolePolicy",
+                "iam:GetRolePolicy",
+                "iam:DeleteRolePolicy",
+                "iam:AttachRolePolicy",
+                "iam:DetachRolePolicy",
+                "iam:PassRole",
+                "iam:TagRole",
+                "iam:UpdateAssumeRolePolicy",
+                "iam:CreateInstanceProfile",
+                "iam:DeleteInstanceProfile",
+                "iam:GetInstanceProfile",
+                "iam:AddRoleToInstanceProfile",
+                "iam:RemoveRoleFromInstanceProfile",
+                "ssm:GetParameters"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "PolicyForManagedRules",
+            "Effect": "Allow",
+            "Action": [
+                "events:PutRule",
+                "events:PutTargets"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "events:ManagedBy": [
+                        "cloudformation.sync.codeconnections.amazonaws.com"
+                    ]
+                }
+            }
+        },
+        {
+            "Sid": "PolicyForDescribingRule",
+            "Effect": "Allow",
+            "Action": [
+                "events:DescribeRule",
+                "events:DeleteRule",
+                "events:RemoveTargets",
+                "events:ListTargetsByRule"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "ECSCICDCore",
+            "Effect": "Allow",
+            "Action": [
+                "autoscaling:*",
+                "ec2:*",
+                "ecr:*",
+                "ecs:*",
+                "elasticloadbalancing:*",
+                "codedeploy:*",
+                "codepipeline:*",
+                "application-autoscaling:*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "ECSCICDSupport",
+            "Effect": "Allow",
+            "Action": [
+                "kms:CreateKey",
+                "kms:DescribeKey",
+                "kms:PutKeyPolicy",
+                "kms:GetKeyPolicy",
+                "kms:ScheduleKeyDeletion",
+                "kms:EnableKeyRotation",
+                "kms:GetKeyRotationStatus",
+                "kms:TagResource",
+                "logs:CreateLogGroup",
+                "logs:DeleteLogGroup",
+                "logs:DescribeLogGroups",
+                "logs:PutRetentionPolicy",
+                "logs:DeleteRetentionPolicy",
+                "logs:AssociateKmsKey",
+                "logs:TagLogGroup",
+                "s3:CreateBucket",
+                "s3:DeleteBucket",
+                "s3:GetBucketLocation",
+                "s3:PutBucketVersioning",
+                "s3:GetBucketVersioning",
+                "s3:PutBucketEncryption",
+                "s3:GetEncryptionConfiguration",
+                "s3:PutBucketPublicAccessBlock",
+                "s3:GetBucketPublicAccessBlock",
+                "s3:PutBucketLogging",
+                "s3:GetBucketLogging",
+                "s3:PutBucketPolicy",
+                "s3:GetBucketPolicy",
+                "s3:DeleteBucketPolicy",
+                "s3:PutBucketOwnershipControls",
+                "s3:GetBucketOwnershipControls",
+                "s3:PutBucketTagging",
+                "s3:GetBucketTagging"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
