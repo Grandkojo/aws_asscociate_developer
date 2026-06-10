@@ -910,7 +910,7 @@ Resources:
                 Version: '1'
               Configuration:
                 ApplicationName: !Ref CodeDeployApp
-                DeploymentGroupName: !Sub '${ProjectName}-dg'
+                DeploymentGroupName: !Ref CodeDeployDeploymentGroup
                 AppSpecTemplateArtifact: AppSpecArtifact
                 AppSpecTemplatePath: appspec.yaml
                 TaskDefinitionTemplateArtifact: AppSpecArtifact
