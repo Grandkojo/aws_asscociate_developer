@@ -718,9 +718,16 @@ Resources:
 
   # ─── Application Auto Scaling ─────────────────────────────────────────────────
 
+  ECSAutoScalingServiceLinkedRole:
+    Type: AWS::IAM::ServiceLinkedRole
+    Properties:
+      AWSServiceName: ecs.application-autoscaling.amazonaws.com
+
   AutoScalingTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
-    DependsOn: ECSService
+    DependsOn:
+      - ECSService
+      - ECSAutoScalingServiceLinkedRole
     Properties:
       MinCapacity: 1
       MaxCapacity: 4
