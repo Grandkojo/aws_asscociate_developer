@@ -2,7 +2,7 @@ template-file-path: ecs-cicd/templates/ecs-cicd.yaml
 parameters:
   GitHubOrg: Grandkojo
   AppRepoName: ecs-cicd-app
-  ProjectName: ecs-cicd-lab-v2
+  ProjectName: ecs-cicd-lab-v3
 tags:
   Project: ecs-cicd-lab
   Lab: ECS-CICD
