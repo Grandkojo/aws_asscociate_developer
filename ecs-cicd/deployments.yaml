@@ -1,9 +1,9 @@
-template-file-path: ecs-cicd/templates/ecs-cicd.yaml
+template-file-path: templates/ecs-cicd.yaml
 parameters:
+  ProjectName: ecs-cicd-lab
   GitHubOrg: Grandkojo
   AppRepoName: ecs-cicd-app
-  ProjectName: ecs-cicd-lab-v4
+  ContainerPort: '80'
+  InitialImage: public.ecr.aws/docker/library/nginx:alpine
 tags:
   Project: ecs-cicd-lab
-  Lab: ECS-CICD
-  ManagedBy: CloudFormation-GitSync

@@ -305,7 +305,7 @@ Resources:
 
   ECRRepository:
     Type: AWS::ECR::Repository
-    DeletionPolicy: Retain
+    DeletionPolicy: Delete
     Properties:
       RepositoryName: !Ref ProjectName
       ImageScanningConfiguration:
@@ -385,7 +385,6 @@ Resources:
         - Key: Project
           Value: !Ref ProjectName
 
-  # GitHub Actions OIDC provider is account-wide; reuse the existing one if present
   GitHubActionsRole:
     Type: AWS::IAM::Role
     Properties:
@@ -422,25 +421,22 @@ Resources:
                   - ecr:UploadLayerPart
                   - ecr:CompleteLayerUpload
                 Resource: !GetAtt ECRRepository.Arn
-              - Sid: ECSTaskDefRegistration
-                Effect: Allow
-                Action: ecs:RegisterTaskDefinition
-                Resource: '*'
-              - Sid: PassTaskRoles
-                Effect: Allow
-                Action: iam:PassRole
-                Resource:
-                  - !GetAtt ECSTaskExecutionRole.Arn
-                  - !GetAtt ECSTaskRole.Arn
               - Sid: S3ArtifactUpload
                 Effect: Allow
                 Action:
                   - s3:PutObject
-                  - s3:GetObject
+                Resource: !Sub 'arn:aws:s3:::${ArtifactBucket}/*'
+              - Sid: S3BucketLocation
+                Effect: Allow
+                Action:
                   - s3:GetBucketLocation
-                Resource:
-                  - !Sub 'arn:aws:s3:::${ArtifactBucket}'
-                  - !Sub 'arn:aws:s3:::${ArtifactBucket}/*'
+                Resource: !Sub 'arn:aws:s3:::${ArtifactBucket}'
+              - Sid: SSMReadConfig
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParametersByPath
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/config/*'
       Tags:
         - Key: Project
           Value: !Ref ProjectName
@@ -754,10 +750,6 @@ Resources:
   # Dedicated access-log sink; logging is not enabled on this bucket (AWS disallows self-logging)
   S3AccessLogsBucket:
     Type: AWS::S3::Bucket
-    Metadata:
-      cfn-guard:
-        SuppressedRules:
-          - S3_BUCKET_LOGGING_ENABLED
     Properties:
       BucketName: !Sub '${ProjectName}-s3-access-logs-${AWS::AccountId}'
       BucketEncryption:
@@ -798,7 +790,7 @@ Resources:
   ArtifactBucket:
     Type: AWS::S3::Bucket
     DependsOn: S3AccessLogsBucketPolicy
-    DeletionPolicy: Retain
+    DeletionPolicy: Delete
     Properties:
       BucketName: !Sub '${ProjectName}-artifacts-${AWS::AccountId}'
       VersioningConfiguration:
@@ -955,6 +947,64 @@ Resources:
           Arn: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${Pipeline}'
           RoleArn: !GetAtt EventBridgeRole.Arn
 
+  # ─── SSM Parameters — workflow config ────────────────────────────────────────
+
+  SSMParamECRRepositoryURI:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/config/ecr-repository-uri'
+      Type: String
+      Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepository}'
+      Description: Full ECR URI for the application repository
+
+  SSMParamArtifactBucket:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/config/artifact-bucket'
+      Type: String
+      Value: !Ref ArtifactBucket
+      Description: S3 artifact bucket name for CodePipeline
+
+  SSMParamExecutionRoleArn:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/config/execution-role-arn'
+      Type: String
+      Value: !GetAtt ECSTaskExecutionRole.Arn
+      Description: ECS task execution role ARN
+
+  SSMParamTaskRoleArn:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/config/task-role-arn'
+      Type: String
+      Value: !GetAtt ECSTaskRole.Arn
+      Description: ECS task role ARN
+
+  SSMParamContainerPort:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/config/container-port'
+      Type: String
+      Value: !Sub '${ContainerPort}'
+      Description: Port the application container listens on
+
+  SSMParamLogGroup:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/config/log-group'
+      Type: String
+      Value: !Ref LogGroup
+      Description: CloudWatch log group name for ECS tasks
+
+  SSMParamTaskFamily:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/config/task-family'
+      Type: String
+      Value: !Sub '${ProjectName}-task'
+      Description: ECS task definition family name
+
 # ─── Outputs ─────────────────────────────────────────────────────────────────
 
 Outputs:
@@ -1005,3 +1055,9 @@ Outputs:
     Value: !GetAtt ECSTaskRole.Arn
     Export:
       Name: !Sub '${ProjectName}-ECSTaskRole'
+
+  SSMParameterPrefix:
+    Description: Set SSM_PREFIX as a GitHub Actions variable to this value
+    Value: !Sub '/${ProjectName}/config'
+    Export:
+      Name: !Sub '${ProjectName}-SSMPrefix'
